@@ -45,7 +45,18 @@ add_custom_command(
     COMMENT "Linking Metal library sift.metallib"
 )
 
-add_custom_target(sift_metallib DEPENDS ${METALLIB_OUTPUT})
+# Embed the metallib in the library, so nothing is loaded from a build or
+# install path at run time. xxd names the array after the file: sift_metallib.
+set(METALLIB_INC "${CMAKE_CURRENT_BINARY_DIR}/sift_metallib.inc")
+add_custom_command(
+    OUTPUT ${METALLIB_INC}
+    COMMAND xxd -i sift.metallib > ${METALLIB_INC}
+    WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
+    DEPENDS ${METALLIB_OUTPUT}
+    COMMENT "Embedding sift.metallib"
+)
+
+add_custom_target(sift_metallib DEPENDS ${METALLIB_OUTPUT} ${METALLIB_INC})
 
 # Build the Obj-C++ host library.
 add_library(colmap_sift_metal STATIC
@@ -58,6 +69,7 @@ add_dependencies(colmap_sift_metal sift_metallib)
 target_include_directories(colmap_sift_metal PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
     $<BUILD_INTERFACE:${SIFT_METAL_INCLUDE_DIR}>
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}>
     $<INSTALL_INTERFACE:include>
 )
 

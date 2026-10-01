@@ -22,6 +22,9 @@
 #include <vector>
 
 // Path to compiled metallib is set by CMake and embedded here.
+// The compiled shaders: unsigned char sift_metallib[], unsigned int sift_metallib_len.
+#include "sift_metallib.inc"
+
 #ifndef SIFT_METAL_METALLIB_PATH
 #define SIFT_METAL_METALLIB_PATH ""
 #endif
@@ -238,13 +241,19 @@ bool SiftMetalExtractorImpl::Init(const Options& opts, int max_w, int max_h) {
   commandQueue_ = [device_ newCommandQueue];
   if (!commandQueue_) return false;
 
-  // Load the pre-compiled metal library.
+  // Load the pre-compiled metal library from the bytes embedded at build
+  // time; the array is static, so the data object must not free it.
   NSError* error = nil;
-  NSString* libPath =
-      [NSString stringWithUTF8String:SIFT_METAL_METALLIB_PATH];
-  if (libPath.length > 0) {
-    NSURL* libURL = [NSURL fileURLWithPath:libPath];
-    library_ = [device_ newLibraryWithURL:libURL error:&error];
+  dispatch_data_t libData = dispatch_data_create(
+      sift_metallib, sift_metallib_len, nil, ^{});
+  library_ = [device_ newLibraryWithData:libData error:&error];
+  if (!library_) {
+    NSString* libPath =
+        [NSString stringWithUTF8String:SIFT_METAL_METALLIB_PATH];
+    if (libPath.length > 0) {
+      NSURL* libURL = [NSURL fileURLWithPath:libPath];
+      library_ = [device_ newLibraryWithURL:libURL error:&error];
+    }
   }
   if (!library_) {
     // Fallback: try default library.
