@@ -62,6 +62,7 @@ static inline float fetch(
 kernel void siftExtremaList(
     device SIFTExtremaResult * output [[buffer(0)]],
     device atomic_uint * outputCount [[buffer(1)]],
+    constant SIFTExtremaParameters & parameters [[buffer(2)]],
     texture2d_array<float, access::read> inputTexture [[texture(0)]],
     ushort3 gid [[thread_position_in_grid]],
     ushort3 lid [[thread_position_in_threadgroup]],
@@ -87,7 +88,9 @@ kernel void siftExtremaList(
         maximum = max(maximum, neighborValue);
     }
 
-    if ((value < minimum) || (value > maximum)) {
+    // Weak extrema cannot pass the contrast check after interpolation; dropping
+    // them here keeps the candidate list within the output buffer.
+    if (((value < minimum) || (value > maximum)) && (fabs(value) > parameters.threshold)) {
         const int i = atomic_fetch_add_explicit(&localCount, 1, memory_order_relaxed);
         SIFTExtremaResult result;
         result.x = g.x;
@@ -103,7 +106,9 @@ kernel void siftExtremaList(
         if (count > 0) {
             const int b = atomic_fetch_add_explicit(outputCount, count, memory_order_relaxed);
             for (int i = 0; i < count; i++) {
-                output[b + i] = localResults[i];
+                if (b + i < parameters.capacity) {
+                    output[b + i] = localResults[i];
+                }
             }
         }
     }

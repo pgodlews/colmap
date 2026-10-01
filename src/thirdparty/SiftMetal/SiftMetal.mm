@@ -28,9 +28,14 @@
 
 namespace sift_metal {
 
-static constexpr int kMaxExtrema = 4096;
-static constexpr int kMaxKeypoints = 4096;
-static constexpr int kMaxDescriptors = 8192;
+// Per-octave capacities. The 2x-upsampled octave of a 3200 px image holds tens
+// of thousands of candidates; 4096 silently kept an arbitrary subset.
+static constexpr int kMaxExtrema = 262144;
+static constexpr int kMaxKeypoints = 262144;
+static constexpr int kMaxDescriptors = 131072;
+// Candidates below this fraction of the peak threshold are dropped before
+// interpolation (VLFeat uses the same 0.8).
+static constexpr float kExtremaPrefilter = 0.8f;
 
 // ---------------------------------------------------------------------------
 // Helper: compute 1D Gaussian kernel weights.
@@ -67,6 +72,7 @@ struct Octave {
   // Buffers for extrema detection
   id<MTLBuffer> extremaOutputBuffer;
   id<MTLBuffer> extremaIndexBuffer;
+  id<MTLBuffer> extremaParamsBuffer;
 
   // Buffers for interpolation
   id<MTLBuffer> interpolateInputBuffer;
@@ -434,6 +440,9 @@ void SiftMetalExtractorImpl::SetupOctave(Octave& oct, int o, float delta,
                            options:MTLResourceStorageModeShared];
   oct.extremaIndexBuffer =
       [device_ newBufferWithLength:sizeof(int32_t)
+                           options:MTLResourceStorageModeShared];
+  oct.extremaParamsBuffer =
+      [device_ newBufferWithLength:sizeof(SIFTExtremaParameters)
                            options:MTLResourceStorageModeShared];
 
   // Interpolation buffers
@@ -806,6 +815,11 @@ void SiftMetalExtractorImpl::EncodeExtrema(id<MTLCommandBuffer> cb,
   [enc setComputePipelineState:siftExtremaListPipeline_];
   [enc setBuffer:oct.extremaOutputBuffer offset:0 atIndex:0];
   [enc setBuffer:oct.extremaIndexBuffer offset:0 atIndex:1];
+  auto* extremaParams =
+      static_cast<SIFTExtremaParameters*>(oct.extremaParamsBuffer.contents);
+  extremaParams->threshold = kExtremaPrefilter * options_.peak_threshold;
+  extremaParams->capacity = kMaxExtrema;
+  [enc setBuffer:oct.extremaParamsBuffer offset:0 atIndex:2];
   [enc setTexture:oct.differenceTextures atIndex:0];
 
   NSUInteger maxThreads = siftExtremaListPipeline_.maxTotalThreadsPerThreadgroup;

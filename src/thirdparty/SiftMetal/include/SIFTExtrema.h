@@ -17,4 +17,10 @@ struct SIFTExtremaResult {
     int32_t scale;
 };
 
+// Contrast pre-filter and output capacity for siftExtremaList.
+struct SIFTExtremaParameters {
+    float threshold;
+    int32_t capacity;
+};
+
 #endif /* SIFTExtrema_h */
