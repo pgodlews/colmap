@@ -1,3 +1,63 @@
+Why this fork exists
+====================
+
+This branch (`metal-sift-4.2.1`) is COLMAP 4.2.1 with SIFT feature extraction
+running on the GPU of Apple silicon Macs, through Metal. It exists so that
+[OSVplat](https://github.com/pgodlews/OSVplat) can run its structure-from-motion
+stage on a Mac. Everything else is upstream COLMAP 4.2.1, unchanged; for
+COLMAP itself, use [colmap/colmap](https://github.com/colmap/colmap).
+
+**The problem.** COLMAP has no GPU SIFT on macOS: SiftGPU needs CUDA, or OpenGL
+through Qt, and the pycolmap wheel on PyPI is built with neither. The CPU
+extractor it falls back to (VLFeat) has no NEON path, so on arm64 it runs
+scalar code.
+
+**What is here.** Five commits on top of the `4.2.1` tag:
+
+1. The Metal SIFT extractor from
+   [byplay-io/colmap-metal](https://github.com/byplay-io/colmap-metal) by Vadim
+   Lobanov (itself a port of [SIFTMetal](https://github.com/lukevanin/SIFTMetal)
+   by Luke Van In, MIT), cherry-picked from its 4.1 development base onto 4.2.1.
+2. A fix for large images. Each octave kept at most 4096 candidate extrema,
+   unfiltered and written without a bounds check; the first octave of a 3200 px
+   image has about 100,000. Candidates are now pre-filtered by contrast, the
+   write is bounded and the buffers are larger.
+3. Deterministic output. Features came back in the order GPU thread groups
+   finished; they are now sorted, and two runs give byte-identical keypoints
+   and descriptors.
+4. The compiled shaders are embedded in the library instead of being loaded
+   from the build directory, so an installed pycolmap works.
+5. Keypoint positions follow COLMAP's convention (origin at the corner of the
+   first pixel). They were half a pixel off; they now agree with the CPU
+   extractor's to a median of 0.000 px.
+
+**Measured** on an M5 Max with 946 fisheye images of 3840 x 3840 (a 473-frame
+two-lens rig), default options, 2026-10-01:
+
+| | Metal (this branch) | CPU SIFT (PyPI wheel) |
+|---|---|---|
+| Feature extraction | 160 s | 775 s |
+| Peak memory, whole SfM run | 6.9 GB | 56 GB |
+
+Matching and mapping still run on the CPU; there is no Metal matcher.
+
+**Using it from pycolmap.** pycolmap sets `use_gpu` from its `device` argument,
+and `Device.auto` means CUDA only, so ask for the GPU explicitly:
+
+```python
+pycolmap.extract_features(database, images, device=pycolmap.Device.cuda,
+                          extraction_options=pycolmap.FeatureExtractionOptions(use_gpu=True))
+```
+
+The log line `Creating SIFT Metal GPU feature extractor` confirms it. Building
+needs Xcode with its Metal Toolchain (`xcodebuild -downloadComponent
+MetalToolchain`); the CMake options are in the Metal SIFT section below.
+
+**Status.** Used on one machine, on clips from one camera (DJI Avata 360), by
+one project so far.
+Only the tip of the branch has been built and run. It is not part of COLMAP
+and its authors have not reviewed it.
+
 COLMAP
 ======
 
