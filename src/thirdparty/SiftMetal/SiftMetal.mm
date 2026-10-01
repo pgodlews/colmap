@@ -590,24 +590,30 @@ bool SiftMetalExtractorImpl::Extract(const uint8_t* data, int w, int h,
     ComputeDescriptors(oct, octKeypoints, oriented, result);
   }
 
-  // Sort by scale (descending) and truncate to max_num_features.
-  if (options_.max_num_features > 0 &&
-      (int)result->keypoints.size() > options_.max_num_features) {
-    // Create index array, sort by sigma descending.
+  // The extrema kernel appends candidates in whatever order its thread groups
+  // finish, so the raw output order differs from run to run. Put the features
+  // in one canonical order (scale descending, then position and orientation),
+  // which also makes the truncation to max_num_features deterministic.
+  {
     std::vector<int> indices(result->keypoints.size());
     std::iota(indices.begin(), indices.end(), 0);
-    std::sort(indices.begin(), indices.end(),
-              [&](int a, int b) {
-                return result->keypoints[a].sigma >
-                       result->keypoints[b].sigma;
-              });
-    indices.resize(options_.max_num_features);
-    std::sort(indices.begin(), indices.end()); // Restore order.
+    std::sort(indices.begin(), indices.end(), [&](int a, int b) {
+      const Keypoint& ka = result->keypoints[a];
+      const Keypoint& kb = result->keypoints[b];
+      if (ka.sigma != kb.sigma) return ka.sigma > kb.sigma;
+      if (ka.y != kb.y) return ka.y < kb.y;
+      if (ka.x != kb.x) return ka.x < kb.x;
+      return ka.orientation < kb.orientation;
+    });
+    if (options_.max_num_features > 0 &&
+        (int)indices.size() > options_.max_num_features) {
+      indices.resize(options_.max_num_features);
+    }
 
     std::vector<Keypoint> newKp;
     std::vector<float> newDesc;
-    newKp.reserve(options_.max_num_features);
-    newDesc.reserve(options_.max_num_features * 128);
+    newKp.reserve(indices.size());
+    newDesc.reserve(indices.size() * 128);
     for (int idx : indices) {
       newKp.push_back(result->keypoints[idx]);
       newDesc.insert(newDesc.end(),
