@@ -802,7 +802,11 @@ class SiftMetalFeatureExtractor : public FeatureExtractor {
     keypoints->resize(num_features);
     for (size_t i = 0; i < num_features; ++i) {
       const auto& kp = metal_result.keypoints[i];
-      (*keypoints)[i] = FeatureKeypoint(kp.x, kp.y, kp.sigma, kp.orientation);
+      // The Metal pipeline reports positions with the origin at the centre of
+      // the first pixel. COLMAP puts it at that pixel's corner (the CPU and
+      // SiftGPU extractors add the same half pixel).
+      (*keypoints)[i] = FeatureKeypoint(
+          kp.x + 0.5f, kp.y + 0.5f, kp.sigma, kp.orientation);
     }
 
     // Normalize and quantize descriptors.
