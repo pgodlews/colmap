@@ -25,6 +25,7 @@
 #include <limits>
 #include <numeric>
 #include <string>
+#include <tuple>
 #include <vector>
 
 // Path to compiled metallib is set by CMake and embedded here.
@@ -1477,25 +1478,32 @@ bool SiftMetalExtractorImpl::Extract(const uint8_t* data, int w, int h,
   // Sort by scale (descending) and truncate after orientation expansion. This
   // mirrors COLMAP's CPU SIFT semantics, where max_num_features limits detected
   // keypoints and each keypoint may contribute multiple oriented descriptors.
-  if (descriptor_limit > 0 &&
-      static_cast<int>(result->keypoints.size()) > descriptor_limit) {
-    // Select the descriptor_limit largest-sigma keypoints.
+  //
+  // The extrema kernel appends candidates in the order its thread groups
+  // finish, so the order read back from the GPU differs from run to run. Put
+  // the features in one canonical order (scale, then position and orientation)
+  // so that the same image always yields the same keypoints and descriptors in
+  // the same order, and ties at the truncation boundary are broken the same
+  // way every time.
+  {
     std::vector<int> indices(result->keypoints.size());
     std::iota(indices.begin(), indices.end(), 0);
-    std::nth_element(indices.begin(),
-                     indices.begin() + descriptor_limit,
-                     indices.end(),
-                     [&](int a, int b) {
-                       return result->keypoints[a].sigma >
-                              result->keypoints[b].sigma;
-                     });
-    indices.resize(descriptor_limit);
-    std::sort(indices.begin(), indices.end()); // Restore order.
+    std::sort(indices.begin(), indices.end(), [&](int a, int b) {
+      const Keypoint& ka = result->keypoints[a];
+      const Keypoint& kb = result->keypoints[b];
+      if (ka.sigma != kb.sigma) return ka.sigma > kb.sigma;
+      return std::tie(ka.y, ka.x, ka.orientation) <
+             std::tie(kb.y, kb.x, kb.orientation);
+    });
+    if (descriptor_limit > 0 &&
+        static_cast<int>(indices.size()) > descriptor_limit) {
+      indices.resize(descriptor_limit);
+    }
 
     std::vector<Keypoint> newKp;
     std::vector<float> newDesc;
-    newKp.reserve(descriptor_limit);
-    newDesc.reserve(descriptor_limit * 128);
+    newKp.reserve(indices.size());
+    newDesc.reserve(indices.size() * 128);
     for (int idx : indices) {
       newKp.push_back(result->keypoints[idx]);
       newDesc.insert(newDesc.end(),
