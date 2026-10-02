@@ -1,3 +1,39 @@
+Why this branch exists
+======================
+
+This branch (`metal-sift-lanxinger`) is what [OSVplat](https://github.com/pgodlews/OSVplat)
+builds on an Apple silicon Mac to run structure-from-motion with SIFT extraction
+on the GPU. It is [lanxinger/colmap-metal](https://github.com/lanxinger/colmap-metal)
+at commit `94470468` (COLMAP 4.2.0 development plus selected 4.2.1 fixes, with
+Metal SIFT extraction and matching) and one commit of ours on top:
+
+- **Canonical feature order.** Features came back in the order GPU thread
+  groups finished. They are now sorted, so the same set of features always
+  comes back in the same order. Large images are still not fully repeatable:
+  when an octave has more candidates than the extractor's capacity, which ones
+  are kept can differ between runs.
+
+The Metal work is Markus Lanxinger's, built on
+[byplay-io/colmap-metal](https://github.com/byplay-io/colmap-metal) by Vadim
+Lobanov and [SIFTMetal](https://github.com/lukevanin/SIFTMetal) by Luke Van In.
+For that work, use their repositories; for COLMAP itself, use
+[colmap/colmap](https://github.com/colmap/colmap). Everything below this
+section is the lanxinger fork's own README.
+
+**Why this one and not `metal-sift-4.2.1`.** That branch carries the byplay
+extractor with our fixes on COLMAP 4.2.1. On one clip (DJI Avata 360, 946
+fisheye images of 3840 px, trained to a 3M-splat Gaussian splat on 2026-10-01)
+the splat trained from this extractor's reconstruction scored PSNR 27.10 dB,
+against 27.01 dB from a CUDA SiftGPU reconstruction and 26.83 to 26.88 dB from
+five reconstructions made with the byplay extractor. One clip, one run each.
+
+**From pycolmap**, ask for the GPU explicitly; `Device.auto` means CUDA only:
+
+```python
+pycolmap.extract_features(database, images, device=pycolmap.Device.cuda,
+                          extraction_options=pycolmap.FeatureExtractionOptions(use_gpu=True))
+```
+
 COLMAP-Metal
 ============
 
